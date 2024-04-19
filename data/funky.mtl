@@ -1,0 +1,262 @@
+# Blender 4.0.2 MTL File: 'None'
+# www.blender.org
+
+newmtl K_house00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_sk_moku00.png
+
+newmtl K_pillar00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_moku03.png
+
+newmtl ami00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_amifix01.png
+
+newmtl bc_kankyaku_m
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/lc_kakyutest.1.png
+
+newmtl ef_dushBoard
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/ef_rainbowRed2.png
+
+newmtl ef_hpipeBoard
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/arrowShMrr.png
+
+newmtl etc
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fklogo03.png
+
+newmtl fkkanbanfix00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_kanbanfix_00.png
+
+newmtl fkrogo00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fklogo01.png
+
+newmtl kira
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/M_Kirakira_A.png
+
+newmtl kosaut00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_skate_rood01.png
+
+newmtl lambert384
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/skate_rood02.png
+
+newmtl lambert391
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_road00_1102.png
+
+newmtl lambert414
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/skate_rood02_1102.png
+
+newmtl lambert417
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_stert00.png
+
+newmtl mokusei00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_mokusei00.png
+
+newmtl pipe00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_skate_ninrogo_b_hp01.png
+
+newmtl pipe01
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_skate_ninrogo_red01.png
+
+newmtl pipe02
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_skate_ninrogo_gren01.png
+
+newmtl pipe03
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_skate_ninrogo_i_hp01.png
+
+newmtl pipe04
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_fk_ninrogo_g_mip3_00.png
+
+newmtl pipe05
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_fk_ninrogo_i_mip00.png
+
+newmtl pipe06
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_fk_ninrogo_r_mip3_00.png
+
+newmtl pipe07
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/K_fk_ninrogo_b_mip3_00.png
+
+newmtl tuti00
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/fk_tuti01.png
+
+newmtl wl_spot3
+Ns 250.000000
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 1
+map_Kd /home/warrenxia/Downloads/Funky Stadium/wl_spot1.png
