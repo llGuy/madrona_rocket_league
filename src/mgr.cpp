@@ -685,6 +685,8 @@ Manager::Impl * Manager::Impl::init(
         Optional<render::RenderManager> render_mgr =
             initRenderManager(mgr_cfg, render_gpu_state);
 
+        imp::ImportedAssets::GPUGeometryData *gpu_imported_assets_ptr = nullptr;
+
         imp::ImportedAssets::GPUGeometryData gpu_imported_assets;
         std::vector<ImportedInstance> imported_instances;
 
@@ -704,6 +706,8 @@ Manager::Impl * Manager::Impl::init(
         assert(gpu_imported_assets_opt.has_value());
 
         gpu_imported_assets = std::move(*gpu_imported_assets_opt);
+
+        gpu_imported_assets_ptr = &gpu_imported_assets;
 
         sim_cfg.importedInstances = (ImportedInstance *)cu::allocGPU(
                 sizeof(ImportedInstance) * imported_instances.size());
@@ -742,7 +746,7 @@ Manager::Impl * Manager::Impl::init(
             .numWorlds = mgr_cfg.numWorlds,
             .numTaskGraphs = (uint32_t)TaskGraphID::NumTaskGraphs,
             .numExportedBuffers = (uint32_t)ExportID::NumExports, 
-            .geometryData = &gpu_imported_assets,
+            .geometryData = gpu_imported_assets_ptr,
             .raycastOutputResolution = raycast_output_resolution,
         }, {
             { GPU_HIDESEEK_SRC_LIST },
