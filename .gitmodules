@@ -1,0 +1,4 @@
+[submodule "external/madrona"]
+	branch = perf_test
+	path = external/madrona
+	url = https://github.com/shacklettbp/madrona.git
