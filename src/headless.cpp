@@ -7,7 +7,9 @@
 #include <fstream>
 #include <random>
 
+#include <madrona/window.hpp>
 #include <madrona/heap_array.hpp>
+#include <madrona/render/render_mgr.hpp>
 
 using namespace madrona;
 
@@ -56,16 +58,46 @@ int main(int argc, char *argv[])
         }
     }
 
+    auto *render_mode = getenv("MADRONA_RENDER_MODE");
+
+    bool enable_batch_renderer =
+#ifdef MADRONA_MACOS
+        false;
+#else
+        render_mode[0] == '1';
+#endif
+
+    auto *resolution_str = getenv("MADRONA_RENDER_RESOLUTION");
+
+    uint32_t raycast_output_resolution = 32;
+
+    if (resolution_str[0] == '0') {
+        raycast_output_resolution *= 1;
+    } else if (resolution_str[0] == '1') {
+        raycast_output_resolution *= 2;
+    } else if (resolution_str[0] == '2') {
+        raycast_output_resolution *= 4;
+    } else if (resolution_str[0] == '3') {
+        raycast_output_resolution *= 8;
+    }
+
+    // WindowManager wm {};
+    // render::GPUHandle render_gpu = wm.initGPU(0, {});
+
     Manager mgr({
         .execMode = exec_mode,
         .gpuID = 0,
         .numWorlds = (uint32_t)num_worlds,
         .autoReset = false,
+        .enableBatchRenderer = enable_batch_renderer,
+        .batchRenderViewWidth = raycast_output_resolution,
+        .batchRenderViewHeight = raycast_output_resolution,
+        .raycastOutputResolution = raycast_output_resolution
     });
 
     std::random_device rd;
     std::mt19937 rand_gen(rd());
-    std::uniform_int_distribution<int32_t> act_rand(0, 4);
+    std::uniform_int_distribution<int32_t> act_rand(0, 2);
 
     auto start = std::chrono::system_clock::now();
 
@@ -77,7 +109,7 @@ int main(int argc, char *argv[])
                     int32_t y = act_rand(rand_gen);
                     int32_t r = act_rand(rand_gen);
 
-                    mgr.setAction(j, k, y, r);
+                    mgr.setAction(j, k, x, y, r, 0,act_rand(rand_gen),1,1,2,1);
                     
                     int64_t base_idx = j * num_steps * 2 * 3 + i * 2 * 3 + k * 3;
                     action_store[base_idx] = x;

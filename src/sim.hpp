@@ -1,11 +1,15 @@
 #pragma once
 
+// #define MERGE_ALL
+
 #include <madrona/taskgraph_builder.hpp>
 #include <madrona/custom_context.hpp>
 #include <madrona/rand.hpp>
 
 #include "consts.hpp"
 #include "types.hpp"
+#include "madrona/mesh_bvh.hpp"
+
 
 namespace madEscape {
 
@@ -15,36 +19,46 @@ class Engine;
 // for each component exported to the training code.
 enum class ExportID : uint32_t {
     Reset,
-    MatchResult,
     Action,
     Reward,
     Done,
-    BallObservation,
     SelfObservation,
-    MyGoalObservation,
-    EnemyGoalObservation,
-    TeamObservation,
-    EnemyObservation,
+    PartnerObservations,
+    RoomEntityObservations,
+    DoorObservation,
+    Lidar,
     StepsRemaining,
-    CarPolicy,
-    LoadCheckpoint,
-    Checkpoint,
+    Raycast,
     NumExports,
 };
 
 // Stores values for the ObjectID component that links entities to
 // render / physics assets.
-enum class SimObject : uint32_t {
+enum class SimObjectDefault : uint32_t {
     Cube,
     Wall,
     Door,
-    AgentTeam0,
-    AgentTeam1,
+    Agent,
     Button,
-    Sphere,
+    Dust2,
     Plane,
     NumObjects,
 };
+
+struct ImportedInstance {
+    madrona::math::Vector3 position;
+    madrona::math::Quat rotation;
+    madrona::math::Diag3x3 scale;
+    int32_t objectID;
+};
+
+enum class TaskGraphID : uint32_t {
+    Step,
+    NumTaskGraphs,
+};
+
+// This is used for generic rendering objects
+using SimObject = uint32_t;
 
 // The Sim class encapsulates the per-world state of the simulation.
 // Sim is always available by calling ctx.data() given a reference
@@ -57,10 +71,15 @@ struct Sim : public madrona::WorldBase {
     struct Config {
         bool autoReset;
         RandKey initRandKey;
-        SimFlags flags;
-        madrona::phys::ObjectManager *rigidBodyObjMgr;
-        RewardHyperParams *rewardHyperParams;
         const madrona::render::RenderECSBridge *renderBridge;
+
+        uint32_t numObjects;
+        uint32_t numImportedInstances;
+        ImportedInstance *importedInstances;
+
+        madrona::math::Vector2 sceneCenter;
+
+        bool mergeAll;
     };
 
     // This class would allow per-world custom data to be passed into
@@ -75,7 +94,7 @@ struct Sim : public madrona::WorldBase {
     // Sim::setupTasks is called during initialization to build
     // the system task graph that will be invoked by the 
     // Manager class (src/mgr.hpp) for each step.
-    static void setupTasks(madrona::TaskGraphBuilder &builder,
+    static void setupTasks(madrona::TaskGraphManager &taskgraph_mgr,
                            const Config &cfg);
 
     // The constructor is called for each world during initialization.
@@ -92,8 +111,6 @@ struct Sim : public madrona::WorldBase {
     // at the end of each episode?
     bool autoReset;
 
-    RewardHyperParams *rewardHyperParams;
-
     // Are we enabling rendering? (whether with the viewer or not)
     bool enableRender;
 
@@ -105,16 +122,24 @@ struct Sim : public madrona::WorldBase {
     // Floor plane entity, constant across all episodes.
     Entity floorPlane;
 
-    // Contains the walls for the arena
-    Arena arena;
+    // Border wall entities: 3 walls to the left, up and down that define
+    // play area. These are constant across all episodes.
+    Entity borders[3];
 
-    Entity cars[consts::numCarsPerTeam * consts::numTeams];
-    Team teams[2];
+    // Agent entity references. This entities live across all episodes
+    // and are just reset to the start of the level on reset.
+    Entity agents[consts::numAgents];
 
-    // There is a single ball in the world
-    Entity ball;
+    ImportedInstance *importedInstances;
+    uint32_t numImportedInstances;
 
-    madrona::Query<CollisionData> collisionQuery;
+    uint32_t numObjects;
+
+    float currentTime;
+
+    madrona::math::Vector2 worldCenter;
+
+    bool mergeAll;
 };
 
 class Engine : public ::madrona::CustomContext<Engine, Sim> {

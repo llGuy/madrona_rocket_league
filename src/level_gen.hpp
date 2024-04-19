@@ -13,6 +13,4 @@ void createPersistentEntities(Engine &ctx);
 // generates a new play area.
 void generateWorld(Engine &ctx);
 
-void placeEntities(Engine &ctx);
-
 }

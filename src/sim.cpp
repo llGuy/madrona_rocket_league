@@ -1,23 +1,46 @@
+#include <algorithm>
 #include <madrona/mw_gpu_entry.hpp>
 
 #include "sim.hpp"
-#include "physics.hpp"
 #include "level_gen.hpp"
+//#include "madrona/mesh_bvh2.hpp"
 
 using namespace madrona;
 using namespace madrona::math;
-using namespace madrona::phys;
 
 namespace RenderingSystem = madrona::render::RenderingSystem;
 
 namespace madEscape {
+
+
+inline Quat eulerToQuat(float yaw,float pitch) {
+    const double halfC = 3.1415926535 / 180;
+
+    float ex = pitch;
+    float ey = 0;
+    float ez = yaw;
+    float sx = sinf(ex * 0.5f);
+    float cx = cosf(ex * 0.5f);
+    float sy = sinf(ey * 0.5f);
+    float cy = cosf(ey * 0.5f);
+    float sz = sinf(ez * 0.5f);
+    float cz = cosf(ez * 0.5f);
+
+    ex = (float)(cy * sx * cz - sy * cx * sz);
+    ey = (float)(sy * cx * cz + cy * sx * sz);
+    ez = (float)(cy * cx * sz - sy * sx * cz);
+    float w = (float)(cy * cx * cz + sy * sx * sz);
+
+    Quat cur_rot = Quat{w, ex, ey, ez};
+    return cur_rot;
+}
 
 // Register all the ECS components and archetypes that will be
 // used in the simulation
 void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
 {
     base::registerTypes(registry);
-    phys::RigidBodyPhysicsSystem::registerTypes(registry);
+    //phys::RigidBodyPhysicsSystem::registerTypes(registry);
 
     RenderingSystem::registerTypes(registry, cfg.renderBridge);
 
@@ -28,88 +51,67 @@ void Sim::registerTypes(ECSRegistry &registry, const Config &cfg)
     registry.registerComponent<GrabState>();
     registry.registerComponent<Progress>();
     registry.registerComponent<OtherAgents>();
-    registry.registerComponent<SelfObservation>();
-    registry.registerComponent<MyGoalObservation>();
-    registry.registerComponent<EnemyGoalObservation>();
-    registry.registerComponent<TeamObservation>();
-    registry.registerComponent<EnemyObservation>();
-    registry.registerComponent<BallObservation>();
-
+    registry.registerComponent<PartnerObservations>();
+    registry.registerComponent<RoomEntityObservations>();
+    registry.registerComponent<DoorObservation>();
+    registry.registerComponent<ButtonState>();
+    registry.registerComponent<OpenState>();
+    registry.registerComponent<DoorProperties>();
     registry.registerComponent<Lidar>();
-    registry.registerComponent<StepsRemainingObservation>();
+    registry.registerComponent<StepsRemaining>();
     registry.registerComponent<EntityType>();
-    registry.registerComponent<BallGoalState>();
-    registry.registerComponent<DynamicEntityType>();
-    registry.registerComponent<CollisionData>();
-    registry.registerComponent<TeamState>();
-    registry.registerComponent<CarBallTouchState>();
-    registry.registerComponent<CarPolicy>();
 
     registry.registerSingleton<WorldReset>();
-    registry.registerSingleton<MatchInfo>();
-    registry.registerSingleton<MatchResult>();
-    registry.registerSingleton<TeamRewardState>();
-    registry.registerSingleton<SimFlags>();
+    registry.registerSingleton<LevelState>();
 
-    registry.registerSingleton<LoadCheckpoint>();
-    registry.registerSingleton<Checkpoint>();
-
+    registry.registerArchetype<DetatchedCamera>();
+    registry.registerComponent<AgentCamera>();
+    registry.registerArchetype<Agent>();
     registry.registerArchetype<PhysicsEntity>();
-    registry.registerArchetype<Car>();
-    registry.registerArchetype<Ball>();
-    registry.registerArchetype<Collision>();
+    registry.registerArchetype<DoorEntity>();
+    registry.registerArchetype<ButtonEntity>();
+    registry.registerArchetype<DummyRenderable>();
+    registry.registerArchetype<ImportedEntity>();
 
-    registry.exportSingleton<WorldReset>((uint32_t)ExportID::Reset);
-    registry.exportSingleton<MatchResult>((uint32_t)ExportID::MatchResult);
 
-    registry.exportSingleton<LoadCheckpoint>(
-        (uint32_t)ExportID::LoadCheckpoint);
-    registry.exportSingleton<Checkpoint>(
-        (uint32_t)ExportID::Checkpoint);
 
-    registry.exportColumn<Car, BallObservation>(
-        (uint32_t)ExportID::BallObservation);
-    registry.exportColumn<Car, Action>((uint32_t)ExportID::Action);
-    registry.exportColumn<Car, SelfObservation>(
+    registry.exportSingleton<WorldReset>(
+        (uint32_t)ExportID::Reset);
+    registry.exportColumn<Agent, Action>(
+        (uint32_t)ExportID::Action);
+    registry.exportColumn<Agent, SelfObservation>(
         (uint32_t)ExportID::SelfObservation);
-    registry.exportColumn<Car, MyGoalObservation>(
-        (uint32_t)ExportID::MyGoalObservation);
-    registry.exportColumn<Car, EnemyGoalObservation>(
-        (uint32_t)ExportID::EnemyGoalObservation);
-    registry.exportColumn<Car, TeamObservation>(
-        (uint32_t)ExportID::TeamObservation);
-    registry.exportColumn<Car, EnemyObservation>(
-        (uint32_t)ExportID::EnemyObservation);
-    registry.exportColumn<Car, StepsRemainingObservation>(
+    registry.exportColumn<Agent, PartnerObservations>(
+        (uint32_t)ExportID::PartnerObservations);
+    registry.exportColumn<Agent, RoomEntityObservations>(
+        (uint32_t)ExportID::RoomEntityObservations);
+    registry.exportColumn<Agent, DoorObservation>(
+        (uint32_t)ExportID::DoorObservation);
+    registry.exportColumn<Agent, Lidar>(
+        (uint32_t)ExportID::Lidar);
+    registry.exportColumn<Agent, StepsRemaining>(
         (uint32_t)ExportID::StepsRemaining);
-    registry.exportColumn<Car, Reward>((uint32_t)ExportID::Reward);
-    registry.exportColumn<Car, Done>((uint32_t)ExportID::Done);
-
-    registry.exportColumn<Car, CarPolicy>(
-        (uint32_t)ExportID::CarPolicy);
+    registry.exportColumn<Agent, Reward>(
+        (uint32_t)ExportID::Reward);
+    registry.exportColumn<Agent, Done>(
+        (uint32_t)ExportID::Done);
+    registry.exportColumn<render::RaycastOutputArchetype, render::RenderOutputBuffer>(
+        (uint32_t)ExportID::Raycast);
 }
 
 static inline void cleanupWorld(Engine &ctx)
 {
-    (void)ctx;
+    LevelState &level = ctx.singleton<LevelState>();
 }
 
 static inline void initWorld(Engine &ctx)
 {
-    phys::RigidBodyPhysicsSystem::reset(ctx);
-
     // Assign a new episode ID
     ctx.data().rng = RNG(rand::split_i(ctx.data().initRandKey,
         ctx.data().curWorldEpisode++, (uint32_t)ctx.worldID().idx));
 
-    ctx.singleton<MatchInfo>().stepsRemaining = consts::episodeLen;
     // Defined in src/level_gen.hpp / src/level_gen.cpp
     generateWorld(ctx);
-}
-
-inline void matchInfoSystem(Engine &, MatchInfo &match_info)
-{
-    match_info.stepsRemaining -= 1;
 }
 
 // This system runs each frame and checks if the current episode is complete
@@ -119,339 +121,267 @@ inline void matchInfoSystem(Engine &, MatchInfo &match_info)
 // If a reset is needed, cleanup the existing world and generate a new one.
 inline void resetSystem(Engine &ctx, WorldReset &reset)
 {
+    ctx.data().currentTime += 0.1f;
+
     int32_t should_reset = reset.reset;
     if (ctx.data().autoReset) {
-        const MatchInfo &match_info = ctx.singleton<MatchInfo>();
-
-        if (match_info.stepsRemaining == 0) {
-            should_reset = 1;
+        for (CountT i = 0; i < consts::numAgents; i++) {
+            Entity agent = ctx.data().agents[i];
+            Done done = ctx.get<Done>(agent);
+            if (done.v) {
+                should_reset = 1;
+            }
         }
     }
-
-    BallGoalState &ball_gs = ctx.get<BallGoalState>(ctx.data().ball);
 
     if (should_reset != 0) {
         reset.reset = 0;
 
         cleanupWorld(ctx);
         initWorld(ctx);
-    } else if (ball_gs.state == BallGoalState::State::InGoal) {
-        placeEntities(ctx);
     }
 }
+
+//#define DYNAMIC_MOVEMENT
 
 // Translates discrete actions from the Action component to forces
 // used by the physics simulation.
-inline void carMovementSystem(Engine &engine,
-                              Entity e,
-                              Action &action, 
-                              Position &pos,
-                              Rotation &rot, 
-                              Velocity &vel,
-                              CarBallTouchState &touch_state)
+inline void movementSystem(Engine &ctx,
+                           Entity e,
+                           Action &action, 
+                           Rotation &rot,
+                           Position &pos,
+                           AgentCamera& cam)
 {
-    touch_state.touched = false;
+    Quat cur_rot = eulerToQuat(cam.yaw,0);
+    int actionX = action.x - 1;
+    int actionY = action.y - 1;
+    Vector3 walkVec = cur_rot.rotateVec({(float)actionY,(float)actionX,0});
+    walkVec = walkVec.length2() == 0 ? Vector3{0,0,0} : walkVec.normalize();
+    walkVec *= 0.8f;
 
-    constexpr float move_angle_per_bucket =
-        3.f * math::pi / float(consts::numTurnBuckets);
-    float move_angle = float(action.rotate-1) * move_angle_per_bucket *
-                       consts::deltaT;
-    Quat rot_diff = Quat::angleAxis(move_angle, { 0.0f, 0.0f, 1.0f });
+    Vector3 newVelocity = {0,0,0};
+    newVelocity.x =  walkVec.x;
+    newVelocity.y = walkVec.y;
+    newVelocity.z = action.z - 1;
 
-    rot *= rot_diff;
+#if defined(DYNAMIC_MOVEMENT)
+    cam.yaw += 0.15f;
+#endif
 
-    Vector3 fwd = rot.rotateVec({ 0.f, 1.f, 0.f });
+    cam.yaw += (action.rot-1)*consts::sensitivity;
+    cam.yaw -= math::pi_m2 * std::floor((cam.yaw + math::pi) * (1. / math::pi_m2));
 
-    // Calculate the uninterupted displacement vector, and velocity.
-    vel.linear += (float)(action.moveAmount-1) * 
-        consts::carAcceleration * fwd * consts::deltaT;
+    cam.pitch += (action.vrot-1) * consts::sensitivity;
+    cam.pitch = std::clamp(cam.pitch,-math::pi_d2,math::pi_d2);
+    pos += newVelocity;
 
-    // Hack friction
-    // vel.linear *= 0.95f;
-    
-    // This is the uninterrupted displacement vector given no collisions.
-    Vector3 dx = vel.linear * consts::deltaT;
-    pos += dx;
-    
-    { // Determine collision with the ball
-        Entity ball_e = engine.data().ball;
-        Vector3 ball_pos = engine.get<Position>(ball_e);
-        Vector3 ball_dx = engine.get<Velocity>(ball_e).linear * consts::deltaT;
+    float entity_offset = (float)e.id;
 
-        AABB car_aabb = { -consts::agentDimensions, consts::agentDimensions };
+#if defined(DYNAMIC_MOVEMENT)
+    pos = Vector3{ 20.f*std::cosf(ctx.data().currentTime + entity_offset), 
+        20.f*std::sinf(ctx.data().currentTime + entity_offset), 22.f };
+    pos.x += ctx.data().worldCenter.x;
+    pos.y += ctx.data().worldCenter.y;
+#endif
 
-        // Transform the ball's position and velocities into the ball's frame
-        Vector3 rel_ball_pos = rot.inv().rotateVec(ball_pos - pos);
-        Vector3 rel_ball_dx = rot.inv().rotateVec(ball_dx/* - dx*/);
+    ctx.get<Position>(cam.camera) = Vector3{ pos.x,pos.y,pos.z};
+    ctx.get<Rotation>(cam.camera) = eulerToQuat(cam.yaw, cam.pitch);
+    rot = eulerToQuat(cam.yaw, 0);
 
-        Sphere ball_sphere = { rel_ball_pos, consts::ballRadius };
+#if 0
+    printf("Position: %f %f %f yaw=%f pitch=%f\n", pos.x, pos.y, pos.z,
+            cam.yaw, cam.pitch);
+#endif
+}
 
-        float out_t;
-        Vector3 sphere_pos_out;
+// Implements the grab action by casting a short ray in front of the agent
+// and creating a joint constraint if a grabbable entity is hit.
+inline void grabSystem(Engine &ctx,
+                       Entity e,
+                       Position pos,
+                       Rotation rot,
+                       Action action,
+                       GrabState &grab)
+{
+    /*
+    if (action.grab == 0) {
+        return;
+    }
+
+    // if a grab is currently in progress, triggering the grab action
+    // just releases the object
+    if (grab.constraintEntity != Entity::none()) {
+        ctx.destroyEntity(grab.constraintEntity);
+        grab.constraintEntity = Entity::none();
         
-        if (intersectMovingSphereAABB(ball_sphere, rel_ball_dx,
-                                      car_aabb, out_t, sphere_pos_out)) {
-            Vector3 diff = rot.rotateVec(sphere_pos_out.normalize());
-            Vector3 overlap = rot.rotateVec(sphere_pos_out - rel_ball_pos);
+        return;
+    } 
 
-            CollisionData collision = {
-                .a = ball_e,
-                .b = e,
-                .overlap = overlap,
-                .diff = diff,
-            };
+    // Get the per-world BVH singleton component
+    auto &bvh = ctx.singleton<broadphase::BVH>();
+    float hit_t;
+    Vector3 hit_normal;
 
-            // TODO: Create collision entity
-            Loc loc = engine.makeTemporary<Collision>();
-            engine.get<CollisionData>(loc) = collision;
+    Vector3 ray_o = pos + 0.5f * math::up;
+    Vector3 ray_d = rot.rotateVec(math::fwd);
 
-            touch_state.touched = true;
-        }
+    Entity grab_entity =
+        bvh.traceRay(ray_o, ray_d, &hit_t, &hit_normal, 2.0f);
+
+    if (grab_entity == Entity::none()) {
+        return;
     }
 
+    auto response_type = ctx.get<ResponseType>(grab_entity);
+    if (response_type != ResponseType::Dynamic) {
+        return;
+    }
 
-    auto create_obb = [](Position pos, Rotation rot) -> OBB {
-        static Vector3 car_ground_verts[4] = {
-            Vector3{ -consts::agentDimensions.x, consts::agentDimensions.y, 0.f },
-            Vector3{ consts::agentDimensions.x, consts::agentDimensions.y, 0.f },
-            Vector3{ consts::agentDimensions.x, -consts::agentDimensions.y, 0.f },
-            Vector3{ -consts::agentDimensions.x, -consts::agentDimensions.y, 0.f }
-        };
+    auto entity_type = ctx.get<EntityType>(grab_entity);
+    if (entity_type == EntityType::Agent) {
+        return;
+    }
 
-        OBB obb = {};
+    Entity constraint_entity = ctx.makeEntity<ConstraintData>();
+    grab.constraintEntity = constraint_entity;
 
-        for (int i = 0; i < 4; ++i) {
-            auto v = rot.rotateVec(car_ground_verts[i]) + 
-                     Vector3{pos.x, pos.y, 0.f};
-            obb.verts[i] = { v.x, v.y };
+    Vector3 other_pos = ctx.get<Position>(grab_entity);
+    Quat other_rot = ctx.get<Rotation>(grab_entity);
+
+    Vector3 r1 = 1.25f * math::fwd + 0.5f * math::up;
+
+    Vector3 hit_pos = ray_o + ray_d * hit_t;
+    Vector3 r2 =
+        other_rot.inv().rotateVec(hit_pos - other_pos);
+
+    Quat attach1 = { 1, 0, 0, 0 };
+    Quat attach2 = (other_rot.inv() * rot).normalize();
+
+    float separation = hit_t - 1.25f;
+
+    ctx.get<JointConstraint>(constraint_entity) = JointConstraint::setupFixed(
+        e, grab_entity, attach1, attach2, r1, r2, separation);*/
+}
+
+// Animates the doors opening and closing based on OpenState
+inline void setDoorPositionSystem(Engine &,
+                                  Position &pos,
+                                  OpenState &open_state)
+{
+    if (open_state.isOpen) {
+        // Put underground
+        if (pos.z > -4.5f) {
+            pos.z += -consts::doorSpeed * consts::deltaT;
         }
+    }
+    else if (pos.z < 0.0f) {
+        // Put back on surface
+        pos.z += consts::doorSpeed * consts::deltaT;
+    }
+    
+    if (pos.z >= 0.0f) {
+        pos.z = 0.0f;
+    }
+}
 
-        return obb;
+
+// Checks if there is an entity standing on the button and updates
+// ButtonState if so.
+inline void buttonSystem(Engine &ctx,
+                         Position pos,
+                         ButtonState &state)
+{
+    AABB button_aabb {
+        .pMin = pos + Vector3 { 
+            -consts::buttonWidth / 2.f, 
+            -consts::buttonWidth / 2.f,
+            0.f,
+        },
+        .pMax = pos + Vector3 { 
+            consts::buttonWidth / 2.f, 
+            consts::buttonWidth / 2.f,
+            0.25f
+        },
     };
 
+    bool button_pressed = false;
+    /*RigidBodyPhysicsSystem::findEntitiesWithinAABB(
+            ctx, button_aabb, [&](Entity) {
+        button_pressed = true;
+    });*/
 
-    OBB e_obb = create_obb(pos, rot);
-
-    // Check the other cars for collisions
-    for (CountT team_idx = 0; team_idx < 2; ++team_idx) {
-        Team &team = engine.data().teams[team_idx];
-        for (int i = 0; i < consts::numCarsPerTeam; ++i) {
-            Entity car = team.players[i];
-
-            if (car != e && car.id < e.id) {
-                // Check for collision
-                OBB car_obb = create_obb(engine.get<Position>(car),
-                                         engine.get<Rotation>(car));
-
-                float min_overlap;
-                Vector2 min_overlap_axis;
-                if (intersectMovingOBBs2D(e_obb, car_obb,
-                                          min_overlap, min_overlap_axis)) {
-
-                    Vector3 diff = 0.5f * min_overlap * 
-                        Vector3{min_overlap_axis.x, min_overlap_axis.y, 0.f};
-
-                    // TODO: Create collision data
-                    CollisionData collision = {
-                        .a = e,
-                        .b = car,
-                        .overlap = diff,
-                        .diff = diff
-                    };
-
-                    Loc loc = engine.makeTemporary<Collision>();
-                    engine.get<CollisionData>(loc) = collision;
-                }
-            }
-        }
-    }
-
-    // Check the walls for collisions
-    for (int i = 0; i < 4; ++i) {
-        auto &plane = engine.data().arena.wallPlanes[i];
-
-        float overlap;
-        if (intersectMovingOBBWall(e_obb, plane, overlap)) {
-            Vector3 overlap_vec = overlap *
-                Vector3{plane.normal.x, plane.normal.y, 0.0f};
-
-#if 0
-            pos -= overlap_vec;
-#endif
-
-            CollisionData collision = {
-                .a = e,
-                .b = Entity::none(),
-                .overlap = overlap_vec,
-                .diff = overlap_vec
-            };
-
-            Loc loc = engine.makeTemporary<Collision>();
-            engine.get<CollisionData>(loc) = collision;
-        }
-    }
-
-#if 0
-    vel.linear *= 0.95f;
-#endif
+    state.isPressed = button_pressed;
 }
 
-inline void checkBallGoalPosts(Engine &engine,
-                               Entity e,
-                               Position &pos,
+// Check if all the buttons linked to the door are pressed and open if so.
+// Optionally, close the door if the buttons aren't pressed.
+inline void doorOpenSystem(Engine &ctx,
+                           OpenState &open_state,
+                           const DoorProperties &props)
+{
+    bool all_pressed = true;
+    for (int32_t i = 0; i < props.numButtons; i++) {
+        Entity button = props.buttons[i];
+        all_pressed = all_pressed && ctx.get<ButtonState>(button).isPressed;
+    }
+
+    if (all_pressed) {
+        open_state.isOpen = true;
+    } else if (!props.isPersistent) {
+        open_state.isOpen = false;
+    }
+}
+
+// Make the agents easier to control by zeroing out their velocity
+// after each step.
+/*
+inline void agentZeroVelSystem(Engine &,
                                Velocity &vel,
-                               BallGoalState &ball_gs,
-                               int goal_idx)
+                               Action &)
 {
-    (void)ball_gs;
+    vel.linear.x = 0;
+    vel.linear.y = 0;
+    vel.linear.z = fminf(vel.linear.z, 0);
 
-    float sign = (goal_idx == 0) ? +1.f : -1.f;
+    vel.angular = Vector3::zero();
+}*/
 
-    Goal &goal = engine.data().arena.goals[goal_idx];
-
-    for (int i = 0; i < 2; ++i) {
-        Vector2 post0_pos = Vector2::fromVector3(
-                engine.get<Position>(goal.outerBorders[i]));
-        Scale post0_scale_3d = engine.get<Scale>(goal.outerBorders[i]);
-
-        Vector2 post0_scale = { post0_scale_3d.d0, post0_scale_3d.d1 };
-
-        WallSegment s0 = {
-            { post0_pos + Vector2{ post0_scale.x/2.f, 0.f },
-              post0_pos - Vector2{ post0_scale.x/2.f, 0.f }},
-            Vector2{ 0.f, -sign }
-        };
-
-        float min_overlap;
-        if (intersectSphereWallSeg(Sphere{ pos, consts::ballRadius },
-                    s0, min_overlap)) {
-            Vector3 normal_3d = Vector3{s0.normal.x, s0.normal.y, 0.f};
-
-            CollisionData collision = {
-                .a = e,
-                .b = Entity::none(),
-                .overlap = normal_3d * min_overlap,
-                .diff = reflect(vel.linear, normal_3d),
-            };
-
-            Loc loc = engine.makeTemporary<Collision>();
-            engine.get<CollisionData>(loc) = collision;
-        }
-    }
-
-    float goal_post_rad = (consts::worldWidth / 3.f + consts::wallWidth*2.f)/2.f;
-
-    if (goal_idx == 0 && pos.y < -consts::worldLength*0.5f) {
-        if (pos.x > (-consts::worldWidth/3.f + goal_post_rad) &&
-            pos.x < (+consts::worldWidth/3.f - goal_post_rad)) {
-            ball_gs.state = BallGoalState::State::InGoal;
-            ball_gs.data = 0;
-        }
-    } else if (goal_idx == 1 && pos.y > consts::worldLength*0.5f) {
-        if (pos.x > (-consts::worldWidth/3.f + goal_post_rad) &&
-            pos.x < (+consts::worldWidth/3.f - goal_post_rad)) {
-            ball_gs.state = BallGoalState::State::InGoal;
-            ball_gs.data = 1;
-        }
-    }
+static inline float distObs(float v)
+{
+    return v / consts::worldLength;
 }
 
-inline void ballMovementSystem(Engine &engine,
-                               Entity e,
-                               Position &pos,
-                               Velocity &vel,
-                               BallGoalState &ball_gs)
+static inline float globalPosObs(float v)
 {
-    (void)engine;
-    (void)ball_gs;
-
-    Vector3 dx = vel.linear * consts::deltaT;
-    pos += dx;
-
-    // Check collision against the long walls
-    for (int i = 0; i < 2; ++i) {
-        WallPlane &plane = engine.data().arena.wallPlanes[i];
-
-        float min_overlap;
-        if (intersectSphereWall(Sphere{pos, consts::ballRadius}, 
-                    plane, min_overlap)) {
-            Vector3 normal_3d = Vector3{plane.normal.x, plane.normal.y, 0.f};
-
-#if 0
-            pos += normal_3d * min_overlap;
-            vel.linear = reflect(vel.linear, normal_3d);
-#endif
-
-            CollisionData collision = {
-                .a = e,
-                .b = Entity::none(),
-                .overlap = normal_3d * min_overlap,
-                .diff = reflect(vel.linear, normal_3d),
-            };
-
-            Loc loc = engine.makeTemporary<Collision>();
-            engine.get<CollisionData>(loc) = collision;
-        }
-    }
-
-    // Check collision against the goal posts
-    for (int i = 0; i < 2; ++i) {
-        checkBallGoalPosts(engine, e, pos, vel, ball_gs, i);
-    }
-
-#if 0
-    vel.linear *= 0.95f;
-#endif
+    return v / consts::worldLength;
 }
 
-inline void collisionResolveSystem(Engine &engine,
-                                   WorldReset)
+static inline float angleObs(float v)
 {
-    auto resolve_collision = [&engine](CollisionData &data) {
-        if (data.b == Entity::none()) {
-            if (engine.get<DynamicEntityType>(data.a) == DynamicEntityType::Car) {
-                // A is a car and B is a wall
-                engine.get<Position>(data.a) -= data.overlap;
-            } else {
-                // A is a ball and B is a wall
-                engine.get<Position>(data.a) += data.overlap;
-                engine.get<Velocity>(data.a).linear = data.diff;
-            }
-        } else if (engine.get<DynamicEntityType>(data.a) == 
-                DynamicEntityType::Ball) {
-            // A is a ball, B is a car
-            engine.get<Velocity>(data.a).linear += data.diff * 10.f;
-            engine.get<Position>(data.a) += data.overlap;
-        } else {
-            // A is a car, B is a car
-            engine.get<Position>(data.a) -= data.diff;
-            engine.get<Velocity>(data.a).linear -= data.diff / consts::deltaT;
+    return v / math::pi;
+}
 
-            engine.get<Position>(data.b) += data.diff;
-            engine.get<Velocity>(data.b).linear += data.diff / consts::deltaT;
-        }
+// Translate xy delta to polar observations for learning.
+static inline PolarObservation xyToPolar(Vector3 v)
+{
+    Vector2 xy { v.x, v.y };
+
+    float r = xy.length();
+
+    // Note that this is angle off y-forward
+    float theta = atan2f(xy.x, xy.y);
+
+    return PolarObservation {
+        .r = distObs(r),
+        .theta = angleObs(theta),
     };
-
-    engine.iterateQuery(engine.data().collisionQuery, resolve_collision);
 }
 
-inline void velocityCorrectSystem(Engine &engine,
-                                  DynamicEntityType type,
-                                  Velocity &vel)
+static inline float encodeType(EntityType type)
 {
-    (void)engine;
-
-    // Friction hack
-    if (type == DynamicEntityType::Ball) {
-        vel.linear *= 0.99f;
-    } else {
-        vel.linear *= 0.9f;
-    }
+    return (float)type / (float)EntityType::NumTypes;
 }
-
-static inline float angleObs(float v) { return v / math::pi; }
-static inline float distObs(float v) { return v / consts::worldLength; }
-static inline float globalPosObs(float v) { return v / consts::worldLength; }
 
 static inline float computeZAngle(Quat q)
 {
@@ -460,428 +390,209 @@ static inline float computeZAngle(Quat q)
     return atan2f(siny_cosp, cosy_cosp);
 }
 
-static inline PolarObservation xyzToPolar(Vector3 v)
+// This system packages all the egocentric observations together 
+// for the policy inputs.
+inline void collectObservationsSystem(Engine &ctx,
+                                      Position pos,
+                                      Rotation rot,
+                                      const Progress &progress,
+                                      const GrabState &grab,
+                                      const OtherAgents &other_agents,
+                                      SelfObservation &self_obs,
+                                      PartnerObservations &partner_obs,
+                                      RoomEntityObservations &room_ent_obs,
+                                      DoorObservation &door_obs)
 {
-    float r = v.length();
+    CountT cur_room_idx = CountT(pos.y / consts::roomLength);
+    cur_room_idx = std::max(CountT(0), 
+        std::min(consts::numRooms - 1, cur_room_idx));
 
-    if (r < 1e-5f) {
-        return PolarObservation {
-            .r = 0.f,
-            .theta = 0.f,
-            .phi = 0.f,
-        };
-    }
-
-    v /= r;
-
-    // Note that this is angle off y-forward
-    float theta = -atan2f(v.x, v.y);
-
-    // This clamp is necessary on GPU due to sqrt / division
-    // approximation
-    float phi = asinf(std::clamp(v.z, -1.f, 1.f));
-
-    return PolarObservation {
-        .r = distObs(r),
-        .theta = angleObs(theta),
-        .phi = angleObs(phi),
-    };
-}
-
-inline void collectCarObservationSystem(
-    Engine &ctx,
-    Entity e,
-    Position pos,
-    Rotation rot,
-    Velocity vel,
-    SelfObservation &self_obs,
-    MyGoalObservation &my_goal_obs,
-    EnemyGoalObservation &enemy_goal_obs,
-    TeamObservation &team_obs,
-    EnemyObservation &enemy_obs,
-    BallObservation &ball_obs,
-    StepsRemainingObservation &steps_remaining_ob,
-    TeamState team_state)
-{
-    const Team &my_team = ctx.data().teams[team_state.teamIdx];
-    const Team &enemy_team = ctx.data().teams[team_state.teamIdx ^ 1];
-
-    const Goal &my_goal = ctx.data().arena.goals[my_team.goalIdx];
-    const Goal &enemy_goal = ctx.data().arena.goals[enemy_team.goalIdx];
-
-    {
-        Vector3 goal_relative_pos = pos - my_goal.centerPosition;
-        float z_rot = computeZAngle(rot);
-
-        Vector3 linear_vel = vel.linear;
-
-        // Reflect observations so they're symmetrical
-        if (my_team.goalIdx == 0) {
-            goal_relative_pos.x *= -1;
-            goal_relative_pos.y *= -1;
-
-            if (z_rot > 0) {
-                z_rot -= math::pi;
-            } else {
-                z_rot += math::pi;
-            }
-
-            linear_vel.x *= -1;
-            linear_vel.y *= -1;
-        }
-
-        self_obs.x = globalPosObs(goal_relative_pos.x);
-        self_obs.y = globalPosObs(goal_relative_pos.y);
-        self_obs.z = globalPosObs(goal_relative_pos.z);
-        self_obs.theta = angleObs(z_rot);
-        self_obs.vel = xyzToPolar(linear_vel);
-    }
+    self_obs.roomX = pos.x / (consts::worldWidth / 2.f);
+    self_obs.roomY = (pos.y - cur_room_idx * consts::roomLength) /
+        consts::roomLength;
+    self_obs.globalX = globalPosObs(pos.x);
+    self_obs.globalY = globalPosObs(pos.y);
+    self_obs.globalZ = globalPosObs(pos.z);
+    self_obs.maxY = globalPosObs(progress.maxY);
+    self_obs.theta = angleObs(computeZAngle(rot));
+    self_obs.isGrabbing = grab.constraintEntity != Entity::none() ?
+        1.f : 0.f;
 
     Quat to_view = rot.inv();
 
-    {
-        Vector3 to_my_goal = my_goal.centerPosition - pos;
-        my_goal_obs.pos = xyzToPolar(to_view.rotateVec(to_my_goal));
+#pragma unroll
+    for (CountT i = 0; i < consts::numAgents - 1; i++) {
+        Entity other = other_agents.e[i];
 
-        Vector3 to_enemy_goal = enemy_goal.centerPosition - pos;
-        enemy_goal_obs.pos = xyzToPolar(to_view.rotateVec(to_enemy_goal));
+        Vector3 other_pos = ctx.get<Position>(other);
+        GrabState other_grab = ctx.get<GrabState>(other);
+        Vector3 to_other = other_pos - pos;
+
+        partner_obs.obs[i] = {
+            .polar = xyToPolar(to_view.rotateVec(to_other)),
+            .isGrabbing = other_grab.constraintEntity != Entity::none() ?
+                1.f : 0.f,
+        };
     }
 
-    // Handle team observations next
-    for (int i = 0, obs_idx = 0; i < consts::numCarsPerTeam; ++i) {
-        // Only car about the other players
-        if (my_team.players[i] != e) {
-            Entity other_player = my_team.players[i];
+    const LevelState &level = ctx.singleton<LevelState>();
+    /*const Room &room = level.rooms[cur_room_idx];
 
-            Vector3 other_pos = ctx.get<Position>(other_player);
-            Rotation other_rot = ctx.get<Rotation>(other_player);
-            Vector3 other_vel = ctx.get<Velocity>(other_player).linear;
+    for (CountT i = 0; i < consts::maxEntitiesPerRoom; i++) {
+        Entity entity = room.entities[i];
 
-            Vector3 to_other = other_pos - pos;
+        EntityObservation ob;
+        if (entity == Entity::none()) {
+            ob.polar = { 0.f, 1.f };
+            ob.encodedType = encodeType(EntityType::None);
+        } else {
+            Vector3 entity_pos = ctx.get<Position>(entity);
+            EntityType entity_type = ctx.get<EntityType>(entity);
 
-            OtherObservation &obs = team_obs.obs[obs_idx];
-            obs.polar = xyzToPolar(to_view.rotateVec(to_other));
-            obs.o_theta = angleObs(computeZAngle(
-                (to_view * other_rot).normalize()));
-            obs.vel = xyzToPolar(to_view.rotateVec(other_vel));
-
-            ++obs_idx;
+            Vector3 to_entity = entity_pos - pos;
+            ob.polar = xyToPolar(to_view.rotateVec(to_entity));
+            ob.encodedType = encodeType(entity_type);
         }
+
+        room_ent_obs.obs[i] = ob;
     }
 
-    // Handle the enemy team
-    for (int i = 0; i < consts::numCarsPerTeam; ++i) {
-        Entity enemy_player = enemy_team.players[i];
+    Entity cur_door = room.door;
+    Vector3 door_pos = ctx.get<Position>(cur_door);
+    OpenState door_open_state = ctx.get<OpenState>(cur_door);
 
-        Vector3 enemy_pos = ctx.get<Position>(enemy_player);
-        Rotation enemy_rot = ctx.get<Rotation>(enemy_player);
-        Vector3 enemy_vel = ctx.get<Velocity>(enemy_player).linear;
-
-        Vector3 to_enemy = enemy_pos - pos;
-
-        OtherObservation &obs = enemy_obs.obs[i];
-        obs.polar = xyzToPolar(to_view.rotateVec(to_enemy));
-        obs.o_theta = angleObs(computeZAngle(
-            (to_view * enemy_rot).normalize()));
-        obs.vel = xyzToPolar(to_view.rotateVec(enemy_vel));
-    }
-
-    {
-        Entity ball_entity = ctx.data().ball;
-        Vector3 ball_pos = ctx.get<Position>(ball_entity);
-        Vector3 ball_vel = ctx.get<Velocity>(ball_entity).linear;
-
-        Vector3 to_ball = ball_pos - pos;
-
-        ball_obs.pos = xyzToPolar(to_view.rotateVec(to_ball));
-        ball_obs.vel = xyzToPolar(ball_vel);
-    }
-
-    steps_remaining_ob.t = ctx.singleton<MatchInfo>().stepsRemaining;
+    door_obs.polar = xyToPolar(to_view.rotateVec(door_pos - pos));
+    door_obs.isOpen = door_open_state.isOpen ? 1.f : 0.f;*/
 }
 
-inline void updateResultsSystem(Engine &ctx,
-                                MatchResult &match_result)
+// Launches consts::numLidarSamples per agent.
+// This system is specially optimized in the GPU version:
+// a warp of threads is dispatched for each invocation of the system
+// and each thread in the warp traces one lidar ray for the agent.
+inline void lidarSystem(Engine &ctx,
+                        Entity e,
+                        Lidar &lidar)
 {
-    const MatchInfo &match_info = ctx.singleton<MatchInfo>();
+    /*
+    Vector3 pos = ctx.get<Position>(e);
+    Quat rot = ctx.get<Rotation>(e);
+    auto &bvh = ctx.singleton<broadphase::BVH>();
 
-    if (match_info.stepsRemaining == consts::episodeLen - 1) {
-        match_result.numTeamAGoals = 0;
-        match_result.numTeamBGoals = 0;
-    }
+    Vector3 agent_fwd = rot.rotateVec(math::fwd);
+    Vector3 right = rot.rotateVec(math::right);
 
-    Entity ball_entity = ctx.data().ball;
-    BallGoalState &ball_gs = ctx.get<BallGoalState>(ball_entity);
+    auto traceRay = [&](int32_t idx) {
+        float theta = 2.f * math::pi * (
+            float(idx) / float(consts::numLidarSamples)) + math::pi / 2.f;
+        float x = cosf(theta);
+        float y = sinf(theta);
 
-    if (ball_gs.state == BallGoalState::State::InGoal) {
-        if (ball_gs.data == ctx.data().teams[0].goalIdx) {
-            match_result.numTeamAGoals += 1;
+        Vector3 ray_dir = (x * right + y * agent_fwd).normalize();
+
+        float hit_t;
+        Vector3 hit_normal;
+        Entity hit_entity =
+            bvh.traceRay(pos + 0.5f * math::up, ray_dir, &hit_t,
+                         &hit_normal, 200.f);
+
+        if (hit_entity == Entity::none()) {
+            lidar.samples[idx] = {
+                .depth = 0.f,
+                .encodedType = encodeType(EntityType::None),
+            };
         } else {
-            match_result.numTeamBGoals += 1;
-        }
-    }
+            EntityType entity_type = ctx.get<EntityType>(hit_entity);
 
-    if (match_info.stepsRemaining == 0) {
-        if (match_result.numTeamAGoals > match_result.numTeamBGoals) {
-            match_result.winResult = 0;
-        } else if (match_result.numTeamBGoals > match_result.numTeamAGoals) {
-            match_result.winResult = 1;
-        } else {
-            match_result.winResult = 2;
+            lidar.samples[idx] = {
+                .depth = distObs(hit_t),
+                .encodedType = encodeType(entity_type),
+            };
         }
+    };
+
+
+    // MADRONA_GPU_MODE guards GPU specific logic
+#ifdef MADRONA_GPU_MODE
+    // Can use standard cuda variables like threadIdx for 
+    // warp level programming
+    int32_t idx = threadIdx.x % 32;
+
+    if (idx < consts::numLidarSamples) {
+        traceRay(idx);
     }
+#else
+    for (CountT i = 0; i < consts::numLidarSamples; i++) {
+        traceRay(i);
+    }
+#endif*/
 }
 
-inline void individualRewardSystem(
-    Engine &ctx,
-    Entity e,
-    CarPolicy car_policy,
-    Position pos,
-    Rotation rot,
-    TeamState team_state,
-    CarBallTouchState touch_state,
-    Reward &reward_out)
+// Computes reward for each agent and keeps track of the max distance achieved
+// so far through the challenge. Continuous reward is provided for any new
+// distance achieved.
+inline void rewardSystem(Engine &,
+                         Position pos,
+                         Progress &progress,
+                         Reward &out_reward)
 {
-    float reward = 0.f;
+    // Just in case agents do something crazy, clamp total reward
+    float reward_pos = fminf(pos.y, consts::worldLength * 2);
 
-    Entity ball_entity = ctx.data().ball;
-    BallGoalState &ball_gs = ctx.get<BallGoalState>(ball_entity);
+    float old_max_y = progress.maxY;
 
-    const RewardHyperParams &reward_hyper_params = ctx.data().rewardHyperParams[
-        car_policy.policyIdx];
+    float new_progress = reward_pos - old_max_y;
 
-    if (touch_state.touched == 1) {
-        reward += 1.f * reward_hyper_params.hitRewardScale;
-    }
-
-    // 2) Goal scored
-    if (ball_gs.state == BallGoalState::State::InGoal) {
-        if (ball_gs.data == ctx.data().teams[team_state.teamIdx].goalIdx) {
-            reward += 5.f;
-        } else {
-            reward -= 5.f;
-        }
-    }
-
-    const MatchInfo &match_info = ctx.singleton<MatchInfo>();
-    if (match_info.stepsRemaining == 0) {
-        int32_t win_result = ctx.singleton<MatchResult>().winResult;
-
-        if (win_result == 2) {
-            reward -= 5.f;
-        } else if (win_result == team_state.teamIdx) {
-            reward += 10.f;
-        } else {
-            reward -= 10.f;
-        }
-    }
-
-    reward_out.v = reward;
-
-#if 0
-#if 0
-    Vector3 car_fwd = rot.rotateVec({0.f, 1.f, 0.f});
-
-    // 1) Ball is in front of / close to the car
-    Vector3 diff = ball_pos - pos;
-    Vector3 diff_norm = normalize(diff);
-
-    float cos_theta = diff_norm.dot(car_fwd);
-    reward += cos_theta * 0.1f / (diff.length2() + 1.f);
-
-#endif
-    // 2) Ball was hit by a car in your team
-    for (int i = 0; i < consts::numCarsPerTeam; ++i) {
-        Entity player_entity = my_team.players[i];
-
-        int32_t t = engine.get<CarBallTouchState>(player_entity).touched;
-        if (t) {
-            reward += 0.1f;
-            break;
-        }
-    }
-    
-#if 0
-    // 3) Ball was hit by the car
-    if (touch_state.touched) {
-        reward += 0.1f;
-    }
-#endif
-
-    // 4) Goal scored
-    if (ball_gs.state == BallGoalState::State::InGoal) {
-        if (ball_gs.data == team_state.teamIdx) {
-            reward += 5.f;
-        } else {
-            reward -= 5.f;
-        }
+    float reward;
+    if (new_progress > 0) {
+        reward = new_progress * consts::rewardPerDist;
+        progress.maxY = reward_pos;
     } else {
-#if 0
-        // 5) Try to keep ball towards the opponent goal
-        // Team 0 is trying to score towards the -y direction
-        // Team 1 is trying to score towards the +y direction
-        
-        constexpr float half_pitch_len = consts::worldLength / 2.f;
-
-        float to_side_y;
-        if (team_state.teamIdx == 0) {
-            to_side_y = ball_pos.y + half_pitch_len;
-        } else {
-            to_side_y = half_pitch_len - ball_pos.y;
-        }
-        
-        // Not on the desired side
-        //float side_reward_sign = 1.f;
-        //if (to_side_y >= half_pitch_len) {
-        //    to_side_y -= half_pitch_len;
-        //    side_reward_sign = -1.f;
-        //}
-
-        float side_reward = (0.05f / half_pitch_len) * 
-            (half_pitch_len - to_side_y);
-
-        reward += side_reward;
-#endif
+        reward = consts::slackReward;
     }
 
-    reward_out.v = reward;
-#endif
+    out_reward.v = reward;
 }
 
-inline void teamRewardSystem(Engine &ctx,
-                             TeamRewardState &team_reward_state)
-{
-    for (CountT team_idx = 0; team_idx < consts::numTeams; team_idx++) {
-        const Team &team = ctx.data().teams[team_idx];
-
-        float reward_sum = 0.f;
-        for (CountT car_idx = 0; car_idx < consts::numCarsPerTeam; car_idx++) {
-            Entity car = team.players[car_idx];
-
-            float car_reward = ctx.get<Reward>(car).v;
-
-            reward_sum += car_reward;
-        }
-
-        float avg_reward = reward_sum / float(consts::numCarsPerTeam);
-        team_reward_state.teamRewards[team_idx] = avg_reward;
-    }
-}
-
-inline void finalRewardSystem(Engine &ctx,
-                              TeamState team,
-                              const CarPolicy &car_policy,
+// Each agent gets a small bonus to it's reward if the other agent has
+// progressed a similar distance, to encourage them to cooperate.
+// This system reads the values of the Progress component written by
+// rewardSystem for other agents, so it must run after.
+inline void bonusRewardSystem(Engine &ctx,
+                              OtherAgents &others,
+                              Progress &progress,
                               Reward &reward)
 {
-    float my_reward = reward.v;
+    bool partners_close = true;
+    for (CountT i = 0; i < consts::numAgents - 1; i++) {
+        Entity other = others.e[i];
+        Progress other_progress = ctx.get<Progress>(other);
 
-    TeamRewardState &team_rewards = ctx.singleton<TeamRewardState>();
-    float team_reward = team_rewards.teamRewards[team.teamIdx];
-    float other_team_reward = team_rewards.teamRewards[team.teamIdx ^ 1];
+        if (fabsf(other_progress.maxY - progress.maxY) > 2.f) {
+            partners_close = false;
+        }
+    }
 
-    const RewardHyperParams &reward_hyper_params = ctx.data().rewardHyperParams[
-        car_policy.policyIdx];
-
-    float team_spirit = reward_hyper_params.teamSpirit;
-
-    reward.v = my_reward * (1.f - team_spirit) + team_reward * team_spirit -
-        other_team_reward;
+    if (partners_close && reward.v > 0.f) {
+        reward.v *= 1.25f;
+    }
 }
 
 // Keep track of the number of steps remaining in the episode and
 // notify training that an episode has completed by
 // setting done = 1 on the final step of the episode
-inline void writeDonesSystem(Engine &ctx,
-                             Done &done)
+inline void stepTrackerSystem(Engine &,
+                              StepsRemaining &steps_remaining,
+                              Done &done)
 {
-    int32_t steps_remaining = ctx.singleton<MatchInfo>().stepsRemaining;
-    if (steps_remaining == 0 || ctx.singleton<WorldReset>().reset == 1) {
-        done.v = 1;
-    } else if (steps_remaining == consts::episodeLen - 1) {
+    int32_t num_remaining = --steps_remaining.t;
+    if (num_remaining == consts::episodeLen - 1) {
         done.v = 0;
+    } else if (num_remaining == 0) {
+        done.v = 1;
     }
+
 }
 
-inline void loadCheckpointSystem(Engine &ctx, const Checkpoint &ckpt)
-{
-    LoadCheckpoint should_load = ctx.singleton<LoadCheckpoint>();
-    if (!should_load.load) {
-        return;
-    }
-
-    should_load.load = 0;
-
-    for (CountT i = 0; i < 2; i++) {
-        Team &team = ctx.data().teams[i];
-        const Checkpoint::TeamData &team_ckpt = ckpt.teams[i];
-
-        for (CountT j = 0; j < 3; j++) {
-            const Checkpoint::CarData &car_ckpt = team_ckpt.cars[j];
-
-            Entity car = team.players[j];
-            ctx.get<Position>(car) = car_ckpt.position;
-            ctx.get<Rotation>(car) = car_ckpt.rotation;
-            ctx.get<Velocity>(car) = car_ckpt.velocity;
-        }
-
-        team.goalIdx = team_ckpt.goalIdx;
-    }
-
-    {
-        const Checkpoint::BallData &ball_ckpt = ckpt.ball;
-
-        Entity ball = ctx.data().ball;
-        ctx.get<Position>(ball) = ball_ckpt.position;
-        ctx.get<Rotation>(ball) = ball_ckpt.rotation;
-        ctx.get<Velocity>(ball) = ball_ckpt.velocity;
-    }
-
-    {
-        MatchInfo &match_info = ctx.singleton<MatchInfo>();
-        MatchResult &match_result = ctx.singleton<MatchResult>();
-
-        match_info.stepsRemaining = ckpt.stepsRemaining;
-        match_result.numTeamAGoals = ckpt.numTeamAGoals;
-        match_result.numTeamBGoals = ckpt.numTeamBGoals;
-    }
-}
-
-inline void checkpointSystem(Engine &ctx, Checkpoint &ckpt)
-{
-    for (CountT i = 0; i < 2; i++) {
-        const Team &team = ctx.data().teams[i];
-        Checkpoint::TeamData &team_ckpt = ckpt.teams[i];
-
-        for (CountT j = 0; j < 3; j++) {
-            Entity car = team.players[j];
-
-            Checkpoint::CarData &car_ckpt = team_ckpt.cars[j];
-            car_ckpt.position = ctx.get<Position>(car);
-            car_ckpt.rotation = ctx.get<Rotation>(car);
-            car_ckpt.velocity = ctx.get<Velocity>(car);
-        }
-
-        team_ckpt.goalIdx = team.goalIdx;
-    }
-
-    {
-        Entity ball = ctx.data().ball;
-
-        Checkpoint::BallData &ball_ckpt = ckpt.ball;
-        ball_ckpt.position = ctx.get<Position>(ball);
-        ball_ckpt.rotation = ctx.get<Rotation>(ball);
-        ball_ckpt.velocity = ctx.get<Velocity>(ball);
-    }
-
-    {
-        const MatchInfo &match_info = ctx.singleton<MatchInfo>();
-        const MatchResult &match_result = ctx.singleton<MatchResult>();
-
-        ckpt.stepsRemaining = match_info.stepsRemaining;
-        ckpt.numTeamAGoals = match_result.numTeamAGoals;
-        ckpt.numTeamBGoals = match_result.numTeamBGoals;
-    }
-}
 
 // Helper function for sorting nodes in the taskgraph.
 // Sorting is only supported / required on the GPU backend,
@@ -895,7 +606,7 @@ TaskGraph::NodeID queueSortByWorld(TaskGraph::Builder &builder,
 {
     auto sort_sys =
         builder.addToGraph<SortArchetypeNode<ArchetypeT, WorldID>>(
-                deps);
+            deps);
     auto post_sort_reset_tmp =
         builder.addToGraph<ResetTmpAllocNode>({sort_sys});
 
@@ -903,87 +614,24 @@ TaskGraph::NodeID queueSortByWorld(TaskGraph::Builder &builder,
 }
 #endif
 
-// Build the task graph
-void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
+static void setupStepTasks(TaskGraphBuilder &builder, 
+                           const Sim::Config &cfg)
 {
-    auto match_info_sys = builder.addToGraph<ParallelForNode<Engine,
-        matchInfoSystem,
-            MatchInfo
-        >>({});
-
     // Turn policy actions into movement
     auto move_sys = builder.addToGraph<ParallelForNode<Engine,
-        carMovementSystem,
+        movementSystem,
             Entity,
             Action,
-            Position,
             Rotation,
-            Velocity,
-            CarBallTouchState
-        >>({match_info_sys});
-
-    auto ball_move_sys = builder.addToGraph<ParallelForNode<Engine,
-        ballMovementSystem,
-            Entity,
             Position,
-            Velocity,
-            BallGoalState
-        >>({move_sys});
-
-    auto post_collisions = ball_move_sys;
-
-#ifdef MADRONA_GPU_MODE
-    auto sort_collisions = queueSortByWorld<Collision>(builder, {ball_move_sys});
-    post_collisions = sort_collisions;
-#endif
-
-    auto collision_resolve = builder.addToGraph<ParallelForNode<Engine,
-         collisionResolveSystem,
-            WorldReset
-        >>({post_collisions});
-
-    auto clear_colisions = builder.addToGraph<ClearTmpNode<Collision>>(
-        {collision_resolve});
-
-    auto velocity_correct_system = builder.addToGraph<ParallelForNode<Engine,
-         velocityCorrectSystem,
-            DynamicEntityType,
-            Velocity
-        >>({clear_colisions});
-
-    auto update_results_sys = builder.addToGraph<ParallelForNode<Engine,
-        updateResultsSystem,
-            MatchResult
-        >>({velocity_correct_system});
-
-    auto individual_reward_sys = builder.addToGraph<ParallelForNode<Engine,
-        individualRewardSystem,
-            Entity,
-            CarPolicy,
-            Position,
-            Rotation,
-            TeamState,
-            CarBallTouchState,
-            Reward
-        >>({update_results_sys});
-
-    auto team_reward_sys = builder.addToGraph<ParallelForNode<Engine,
-        teamRewardSystem,
-            TeamRewardState
-        >>({individual_reward_sys});
-
-    auto final_reward_sys = builder.addToGraph<ParallelForNode<Engine,
-        finalRewardSystem,
-            TeamState,
-            CarPolicy,
-            Reward
-        >>({team_reward_sys});
-
+            AgentCamera
+        >>({});
     // Check if the episode is over
     auto done_sys = builder.addToGraph<ParallelForNode<Engine,
-        writeDonesSystem,
+        stepTrackerSystem,
+            StepsRemaining,
             Done
-        >>({final_reward_sys});
+        >>({move_sys});
 
     // Conditionally reset the world if the episode is over
     auto reset_sys = builder.addToGraph<ParallelForNode<Engine,
@@ -991,51 +639,59 @@ void Sim::setupTasks(TaskGraphBuilder &builder, const Config &cfg)
             WorldReset
         >>({done_sys});
 
-    auto load_ckpt_sys = builder.addToGraph<ParallelForNode<Engine,
-        loadCheckpointSystem,
-            Checkpoint
-        >>({reset_sys});
+    auto clear_tmp = builder.addToGraph<ResetTmpAllocNode>({reset_sys});
+    (void)clear_tmp;
 
-    auto ckpt_sys = builder.addToGraph<ParallelForNode<Engine,
-        checkpointSystem,
-            Checkpoint
-        >>({load_ckpt_sys});
-    (void)ckpt_sys;
-
-    auto car_obs_system = builder.addToGraph<ParallelForNode<Engine,
-         collectCarObservationSystem,
-            Entity,
-            Position,
-            Rotation,
-            Velocity,
-            SelfObservation,
-            MyGoalObservation,
-            EnemyGoalObservation,
-            TeamObservation,
-            EnemyObservation,
-            BallObservation,
-            StepsRemainingObservation,
-            TeamState
-        >>({load_ckpt_sys});
-
-    if (cfg.renderBridge) {
-        RenderingSystem::setupTasks(builder, {reset_sys});
-    }
-
-    auto cleanup_start = car_obs_system;
-
-    auto cleanup = builder.addToGraph<ResetTmpAllocNode>({cleanup_start});
 #ifdef MADRONA_GPU_MODE
     // RecycleEntitiesNode is required on the GPU backend in order to reclaim
     // deleted entity IDs.
-    cleanup = builder.addToGraph<RecycleEntitiesNode>({cleanup});
-
-    cleanup = queueSortByWorld<Car>(builder, {cleanup});
-    cleanup = queueSortByWorld<Ball>(builder, {cleanup});
-    cleanup = queueSortByWorld<PhysicsEntity>(builder, {cleanup});
-#else
-    (void)cleanup;
+    auto recycle_sys = builder.addToGraph<RecycleEntitiesNode>({reset_sys});
+    (void)recycle_sys;
 #endif
+
+    // This second BVH build is a limitation of the current taskgraph API.
+    // It's only necessary if the world was reset, but we don't have a way
+    // to conditionally queue taskgraph nodes yet.
+    //auto post_reset_broadphase = phys::RigidBodyPhysicsSystem::setupBroadphaseTasks(
+    //    builder, {reset_sys});
+
+    // Finally, collect observations for the next step.
+    auto collect_obs = builder.addToGraph<ParallelForNode<Engine,
+        collectObservationsSystem,
+            Position,
+            Rotation,
+            Progress,
+            GrabState,
+            OtherAgents,
+            SelfObservation,
+            PartnerObservations,
+            RoomEntityObservations,
+            DoorObservation
+        >>({reset_sys});
+
+    RenderingSystem::setupTasks(builder, {reset_sys});
+
+#ifdef MADRONA_GPU_MODE
+    // Sort entities, this could be conditional on reset like the second
+    // BVH build above.
+    auto sort_agents = queueSortByWorld<Agent>(
+        builder, {collect_obs});
+    auto sort_phys_objects = queueSortByWorld<PhysicsEntity>(
+        builder, {sort_agents});
+    auto sort_buttons = queueSortByWorld<ButtonEntity>(
+        builder, {sort_phys_objects});
+    auto sort_walls = queueSortByWorld<DoorEntity>(
+        builder, {sort_buttons});
+    (void)sort_walls;
+#else
+    (void)collect_obs;
+#endif
+}
+
+// Build the task graph
+void Sim::setupTasks(TaskGraphManager &taskgraph_mgr, const Config &cfg)
+{
+    setupStepTasks(taskgraph_mgr.init(TaskGraphID::Step), cfg);
 }
 
 Sim::Sim(Engine &ctx,
@@ -1050,19 +706,22 @@ Sim::Sim(Engine &ctx,
         consts::numRooms * (consts::maxEntitiesPerRoom + 3) +
         4; // side walls + floor
 
-    ctx.singleton<SimFlags>() = cfg.flags;
+    mergeAll = cfg.mergeAll;
+    
+    importedInstances = cfg.importedInstances;
+    numImportedInstances = cfg.numImportedInstances;
+    numObjects = cfg.numObjects;
 
-    ctx.singleton<LoadCheckpoint>().load = 0;
-
-    phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
+    /*phys::RigidBodyPhysicsSystem::init(ctx, cfg.rigidBodyObjMgr,
         consts::deltaT, consts::numPhysicsSubsteps, -9.8f * math::up,
-        max_total_entities);
-
+        max_total_entities, max_total_entities * max_total_entities / 2,
+        consts::numAgents);
+    */
     initRandKey = cfg.initRandKey;
     autoReset = cfg.autoReset;
-    rewardHyperParams = cfg.rewardHyperParams;
 
-    enableRender = cfg.renderBridge != nullptr;
+    // enableRender = cfg.renderBridge != nullptr;
+    enableRender = true;
 
     if (enableRender) {
         RenderingSystem::init(ctx, cfg.renderBridge);
@@ -1070,13 +729,51 @@ Sim::Sim(Engine &ctx,
 
     curWorldEpisode = 0;
 
+#if 0
+    phys::MeshBVH *mesh_bvhs = (phys::MeshBVH *)cfg.bvhs;
+    for (int bvh_idx = 0; bvh_idx < 10; ++bvh_idx) {
+        phys::MeshBVH *current_bvh = &mesh_bvhs[bvh_idx];
+
+        printf("############ PRINTING FOR BVH %d (%p) ###############\n", 
+               bvh_idx,
+               current_bvh);
+
+        printf("Node info:\n");
+        for (int node_idx = 0; node_idx < current_bvh->numNodes; ++node_idx) {
+            phys::MeshBVH::Node *current_node = &current_bvh->nodes[node_idx];
+
+            printf("\t(%p) Parent at %d\n", current_node, current_node->parentID);
+        }
+
+        printf("Triangle info:\n");
+        for (int geo_idx = 0; geo_idx < std::min(current_bvh->numLeaves, 30u); ++geo_idx) {
+            phys::MeshBVH::LeafGeometry *current_geo = &current_bvh->leafGeos[geo_idx];
+            printf("\t(%p) Triangel indices: %u %u %u\n",
+                    current_geo,
+                    current_geo->packedIndices[0].indices[0],
+                    current_geo->packedIndices[0].indices[1],
+                    current_geo->packedIndices[0].indices[2]);
+        }
+
+        printf("Vertex info:\n");
+        for (int vert_idx = 0; vert_idx < std::min(current_bvh->numVerts, 30u); ++vert_idx) {
+            math::Vector3 *current_vtx = &current_bvh->vertices[vert_idx];
+            printf("\t(%p) %f %f %f\n",
+                    current_vtx,
+                    current_vtx->x, current_vtx->y, current_vtx->z);
+        }
+    }
+#endif
+
     // Creates agents, walls, etc.
     createPersistentEntities(ctx);
 
     // Generate initial world state
     initWorld(ctx);
 
-    collisionQuery = ctx.query<CollisionData>();
+    currentTime = 0.f;
+
+    worldCenter = cfg.sceneCenter;
 }
 
 // This declaration is needed for the GPU backend in order to generate the

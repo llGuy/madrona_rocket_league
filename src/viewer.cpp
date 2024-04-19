@@ -2,55 +2,38 @@
 #include <madrona/render/render_mgr.hpp>
 #include <madrona/window.hpp>
 
-#ifdef MADRONA_CUDA_SUPPORT
-#include <madrona/cuda_utils.hpp>
-#endif
-
 #include "sim.hpp"
 #include "mgr.hpp"
 #include "types.hpp"
 
 #include <filesystem>
 #include <fstream>
-
 #include <imgui.h>
 
 using namespace madrona;
 using namespace madrona::viz;
-using namespace madEscape;
 
-static void badRecording()
+static HeapArray<int32_t> readReplayLog(const char *path)
 {
-    FATAL("Invalid recording");
-}
+    std::ifstream replay_log(path, std::ios::binary);
+    replay_log.seekg(0, std::ios::end);
+    int64_t size = replay_log.tellg();
+    replay_log.seekg(0, std::ios::beg);
 
-static HeapArray<Checkpoint> readReplayLog(const char *path)
-{
-    std::ifstream replay_log_file(path, std::ios::binary);
-    if (!replay_log_file.is_open()) {
-        badRecording();
-    }
+    HeapArray<int32_t> log(size / sizeof(int32_t));
 
-    replay_log_file.seekg(0, std::ios::end);
-    size_t num_bytes = replay_log_file.tellg();
-    replay_log_file.seekg(0, std::ios::beg);
+    replay_log.read((char *)log.data(), (size / sizeof(int32_t)) * sizeof(int32_t));
 
-    size_t num_steps = num_bytes / sizeof(Checkpoint);
-    if (num_steps * sizeof(Checkpoint) != num_bytes) {
-        badRecording();
-    }
-
-    HeapArray<Checkpoint> log_data(num_steps);
-
-    replay_log_file.read((char *)log_data.data(), num_bytes);
-
-    return log_data;
+    return log;
 }
 
 int main(int argc, char *argv[])
 {
-    constexpr int64_t num_views = consts::numTeams * consts::numCarsPerTeam;
+    using namespace madEscape;
 
+    constexpr int64_t num_views = 2;
+
+    printf("Started in: \n");
     // Read command line arguments
     uint32_t num_worlds = 1;
     if (argc >= 2) {
@@ -72,27 +55,55 @@ int main(int argc, char *argv[])
         replay_log_path = argv[3];
     }
 
-    auto replay_log = Optional<HeapArray<Checkpoint>>::none();
-    CountT cur_replay_step = 0;
-    CountT num_replay_steps = 0;
+    auto replay_log = Optional<HeapArray<int32_t>>::none();
+    uint32_t cur_replay_step = 0;
+    uint32_t num_replay_steps = 0;
     if (replay_log_path != nullptr) {
         replay_log = readReplayLog(replay_log_path);
-        num_replay_steps = replay_log->size() / num_worlds;
-        if (num_replay_steps * num_worlds != replay_log->size()) {
-            badRecording();
-        }
+        num_replay_steps = replay_log->size() / (num_worlds * num_views * 4);
     }
+
+    // Render mode 0 is no rendering
+    // Render mode 1 is rasterization.
+    // Render mode 2 is raycasting.
+    auto *render_mode = getenv("MADRONA_RENDER_MODE");
 
     bool enable_batch_renderer =
 #ifdef MADRONA_MACOS
         false;
 #else
-        true;
+        render_mode[0] == '1';
 #endif
 
+    //WindowManager wm {WindowManager::Config{.enableRenderAPIValidation=true,.renderBackendSelect =
+    //        render::APIBackendSelect::Auto}};
     WindowManager wm {};
-    WindowHandle window = wm.makeWindow("Escape Room", 2730, 1536);
+    WindowHandle window = wm.makeWindow("Escape Room", 1408, 1408);
+    printf("Here\n");
     render::GPUHandle render_gpu = wm.initGPU(0, { window.get() });
+
+
+    printf("premanage: \n");
+
+    auto *resolution_str = getenv("MADRONA_RENDER_RESOLUTION");
+
+    uint32_t raycast_output_resolution = 32;
+
+    if (resolution_str[0] == '0') {
+        raycast_output_resolution *= 1;
+    } else if (resolution_str[0] == '1') {
+        raycast_output_resolution *= 2;
+    } else if (resolution_str[0] == '2') {
+        raycast_output_resolution *= 4;
+    } else if (resolution_str[0] == '3') {
+        raycast_output_resolution *= 8;
+    }
+
+    auto *trace_test = getenv("MADRONA_TRACE_TEST");
+    if (trace_test[0] == '1') {
+        raycast_output_resolution = 1408;
+        printf("I set the resolution!!!\n");
+    }
 
     // Create the simulation manager
     Manager mgr({
@@ -101,17 +112,18 @@ int main(int argc, char *argv[])
         .numWorlds = num_worlds,
         .randSeed = 5,
         .autoReset = replay_log.has_value(),
-        .simFlags = SimFlags::Default,
-        .numPBTPolicies = 0,
         .enableBatchRenderer = enable_batch_renderer,
+        .batchRenderViewWidth = raycast_output_resolution,
+        .batchRenderViewHeight = raycast_output_resolution,
         .extRenderAPI = wm.gpuAPIManager().backend(),
         .extRenderDev = render_gpu.device(),
+        .raycastOutputResolution = raycast_output_resolution,
     });
-    mgr.init();
+    printf("postmanage: \n");
 
     float camera_move_speed = 10.f;
 
-    math::Vector3 initial_camera_position = { 0, 0, 30 };
+    math::Vector3 initial_camera_position = { 0, consts::worldLength / 2.f, 30 };
 
     math::Quat initial_camera_rotation =
         (math::Quat::angleAxis(-math::pi / 2.f, math::up) *
@@ -121,74 +133,35 @@ int main(int argc, char *argv[])
     // Create the viewer viewer
     viz::Viewer viewer(mgr.getRenderManager(), window.get(), {
         .numWorlds = num_worlds,
-        .simTickRate = 20,
+        .simTickRate = 120,
         .cameraMoveSpeed = camera_move_speed,
         .cameraPosition = initial_camera_position,
         .cameraRotation = initial_camera_rotation,
     });
 
-    auto self_tensor = mgr.selfObservationTensor();
-    auto my_goal_tensor = mgr.myGoalObservationTensor();
-    auto enemy_goal_tensor = mgr.enemyGoalObservationTensor();
-    auto team_tensor = mgr.teamObservationTensor();
-    auto enemy_tensor = mgr.enemyObservationTensor();
-    auto ball_tensor = mgr.ballTensor();
-    auto steps_remaining_tensor = mgr.stepsRemainingTensor();
-    auto reward_tensor = mgr.rewardTensor();
-    auto match_result_tensor = mgr.matchResultTensor();
-
-    // Printers
-    auto self_printer = self_tensor.makePrinter();
-    auto team_printer = team_tensor.makePrinter();
-    auto enemy_printer = enemy_tensor.makePrinter();
-    auto ball_printer = ball_tensor.makePrinter();
-    auto steps_remaining_printer = steps_remaining_tensor.makePrinter();
-    auto reward_printer = reward_tensor.makePrinter();
-    auto match_result_printer = match_result_tensor.makePrinter();
-
-    auto ckpt_tensor = mgr.checkpointTensor();
-    auto load_ckpt_tensor = mgr.loadCheckpointTensor();
-
-    HeapArray<LoadCheckpoint> load_all_checkpoints(num_worlds);
-    for (CountT i = 0; i < (CountT)num_worlds; i++) {
-        load_all_checkpoints[i].load = 1;
-    }
-
-#ifdef MADRONA_CUDA_SUPPORT
-    cudaStream_t copy_strm;
-    REQ_CUDA(cudaStreamCreate(&copy_strm));
-#endif
-
     // Replay step
     auto replayStep = [&]() {
-        if (cur_replay_step == num_replay_steps) {
+        if (cur_replay_step == num_replay_steps - 1) {
             return true;
         }
 
-        printf("Step: %ld\n", (long)cur_replay_step);
+        printf("Step: %u\n", cur_replay_step);
 
-        const Checkpoint *cur_step_ckpts = replay_log->data() +
-            cur_replay_step * (CountT)num_worlds;
+        for (uint32_t i = 0; i < num_worlds; i++) {
+            for (uint32_t j = 0; j < num_views; j++) {
+                uint32_t base_idx = 0;
+                base_idx = 4 * (cur_replay_step * num_views * num_worlds +
+                    i * num_views + j);
 
-        if (exec_mode == ExecMode::CUDA) {
-#ifdef MADRONA_CUDA_SUPPORT
-            cudaMemcpyAsync(ckpt_tensor.devicePtr(), cur_step_ckpts,
-                sizeof(Checkpoint) * num_worlds,
-                cudaMemcpyHostToDevice, copy_strm);
+                int32_t move_amount = (*replay_log)[base_idx];
+                int32_t move_angle = (*replay_log)[base_idx + 1];
+                int32_t turn = (*replay_log)[base_idx + 2];
+                int32_t g = (*replay_log)[base_idx + 3];
 
-            cudaMemcpyAsync(load_ckpt_tensor.devicePtr(),
-                            load_all_checkpoints.data(),
-                            sizeof(LoadCheckpoint) * num_worlds,
-                            cudaMemcpyHostToDevice, copy_strm);
-
-            REQ_CUDA(cudaStreamSynchronize(copy_strm));
-#endif
-        } else {
-            memcpy(ckpt_tensor.devicePtr(), cur_step_ckpts,
-                   sizeof(Checkpoint) * num_worlds);
-
-            memcpy(load_ckpt_tensor.devicePtr(), load_all_checkpoints.data(),
-                   sizeof(LoadCheckpoint) * num_worlds);
+                printf("%d, %d: %d %d %d %d\n",
+                       i, j, move_amount, move_angle, turn, g);
+                mgr.setAction(i, j, move_amount, move_angle, turn, g,1,1,1,1,1);
+            }
         }
 
         cur_replay_step++;
@@ -196,18 +169,32 @@ int main(int argc, char *argv[])
         return false;
     };
 
+    // Printers
+#if 0
+    auto self_printer = mgr.selfObservationTensor().makePrinter();
+    auto partner_printer = mgr.partnerObservationsTensor().makePrinter();
+    auto room_ent_printer = mgr.roomEntityObservationsTensor().makePrinter();
+    auto door_printer = mgr.doorObservationTensor().makePrinter();
+    auto lidar_printer = mgr.lidarTensor().makePrinter();
+    auto steps_remaining_printer = mgr.stepsRemainingTensor().makePrinter();
+    auto reward_printer = mgr.rewardTensor().makePrinter();
+#endif
+
     auto printObs = [&]() {
-        printf("Self\n");
+        /*printf("Self\n");
         self_printer.print();
 
-        printf("Team\n");
-        team_printer.print();
+        printf("Partner\n");
+        partner_printer.print();
 
-        printf("Enemy\n");
-        enemy_printer.print();
+        printf("Room Entities\n");
+        room_ent_printer.print();
 
-        printf("Ball\n");
-        ball_printer.print();
+        printf("Door\n");
+        door_printer.print();
+
+        printf("Lidar\n");
+        lidar_printer.print();
 
         printf("Steps Remaining\n");
         steps_remaining_printer.print();
@@ -215,36 +202,17 @@ int main(int argc, char *argv[])
         printf("Reward\n");
         reward_printer.print();
 
-        printf("Match Result\n");
-        match_result_printer.print();
-
-        printf("\n");
+        printf("\n");*/
     };
 
 
-#ifdef MADRONA_CUDA_SUPPORT
-    SelfObservation *self_obs_readback = (SelfObservation *)cu::allocReadback(
-        sizeof(SelfObservation) * num_views);
-
-    MyGoalObservation *my_goal_obs_readback = 
-        (MyGoalObservation *)cu::allocReadback(
-            sizeof(MyGoalObservation) * num_views);
-
-    EnemyGoalObservation *enemy_goal_obs_readback = 
-        (EnemyGoalObservation *)cu::allocReadback(
-            sizeof(EnemyGoalObservation) * num_views);
-
-    Reward *reward_readback = (Reward *)cu::allocReadback(
-        sizeof(Reward) * num_views);
-
-    BallObservation *ball_readback = (BallObservation *)cu::allocReadback(
-        sizeof(BallObservation));
-#endif
 
     // Main loop for the viewer viewer
     viewer.loop(
     [&mgr](CountT world_idx, const Viewer::UserInput &input)
     {
+        // printf("new frame\n");
+
         using Key = Viewer::KeyboardKey;
         if (input.keyHit(Key::R)) {
             mgr.triggerReset(world_idx);
@@ -255,8 +223,12 @@ int main(int argc, char *argv[])
     {
         using Key = Viewer::KeyboardKey;
 
+        int32_t x = 0;
         int32_t y = 0;
-        int32_t r = 0;
+        int32_t r = 2;
+        int32_t g = 0;
+
+        bool shift_pressed = input.keyPressed(Key::Shift);
 
         if (input.keyPressed(Key::W)) {
             y += 1;
@@ -265,16 +237,96 @@ int main(int argc, char *argv[])
             y -= 1;
         }
 
+        if (input.keyPressed(Key::D)) {
+            x += 1;
+        }
+        if (input.keyPressed(Key::A)) {
+            x -= 1;
+        }
+
         if (input.keyPressed(Key::Q)) {
-            r += 1;
+            r += shift_pressed ? 2 : 1;
         }
         if (input.keyPressed(Key::E)) {
-            r -= 1;
+            r -= shift_pressed ? 2 : 1;
         }
 
-        int32_t move_amount = y+1;
+        if (input.keyHit(Key::G)) {
+            g = 1;
+        }
 
-        mgr.setAction(world_idx, agent_idx, move_amount, r+1);
+        int32_t move_amount;
+        if (x == 0 && y == 0) {
+            move_amount = 0;
+        } else if (shift_pressed) {
+            move_amount = consts::numMoveAmountBuckets - 1;
+        } else {
+            move_amount = 1;
+        }
+
+        int32_t move_angle;
+        if (x == 0 && y == 1) {
+            move_angle = 0;
+        } else if (x == 1 && y == 1) {
+            move_angle = 1;
+        } else if (x == 1 && y == 0) {
+            move_angle = 2;
+        } else if (x == 1 && y == -1) {
+            move_angle = 3;
+        } else if (x == 0 && y == -1) {
+            move_angle = 4;
+        } else if (x == -1 && y == -1) {
+            move_angle = 5;
+        } else if (x == -1 && y == 0) {
+            move_angle = 6;
+        } else if (x == -1 && y == 1) {
+            move_angle = 7;
+        } else {
+            move_angle = 0;
+        }
+
+        x = 1;
+        if (input.keyPressed(Key::W)) {
+            x = 2;
+        }
+        if (input.keyPressed(Key::S)) {
+            x = 0;
+        }
+
+        y = 1;
+        if (input.keyPressed(Key::D)) {
+            y = 2;
+        }
+        if (input.keyPressed(Key::A)) {
+            y = 0;
+        }
+
+        int rot=1;
+        if (input.keyPressed(Key::Q)) {
+            rot = 2;
+        }
+        if (input.keyPressed(Key::E)) {
+            rot = 0;
+        }
+
+        int vrot = 1;
+        if (input.keyPressed(Key::T)) {
+            vrot = 2;
+        }
+        if (input.keyPressed(Key::F)) {
+            vrot = 0;
+        }
+
+        int z = 1;
+        if (input.keyPressed(Key::Space)) {
+            z = 2;
+        }
+
+        if (input.keyPressed(Key::Shift)) {
+            z = 0;
+        }
+
+        mgr.setAction(world_idx, agent_idx, move_amount, move_angle, r, g,x,y,z,rot,vrot);
     }, [&]() {
         if (replay_log.has_value()) {
             bool replay_finished = replayStep();
@@ -288,91 +340,60 @@ int main(int argc, char *argv[])
 
         printObs();
     }, [&]() {
-        CountT cur_world_id = viewer.getCurrentWorldID();
-        CountT agent_world_offset = cur_world_id * num_views;
+        unsigned char* print_ptr;
+        #ifdef MADRONA_CUDA_SUPPORT
+            int64_t num_bytes = 3 * raycast_output_resolution * raycast_output_resolution;
+            print_ptr = (unsigned char*)cu::allocReadback(num_bytes);
+        #else
+            print_ptr = nullptr;
+        #endif
 
-        SelfObservation *self_obs_ptr =
-            (SelfObservation *)self_tensor.devicePtr();
+        char *raycast_tensor = (char *)(mgr.raycastTensor().devicePtr());
 
-        MyGoalObservation *my_goal_obs_ptr =
-            (MyGoalObservation *)my_goal_tensor.devicePtr();
+        uint32_t bytes_per_image = 3 * raycast_output_resolution * raycast_output_resolution;
+        uint32_t image_idx = viewer.getCurrentWorldID() * consts::numAgents + 
+            std::max(viewer.getCurrentViewID(), (CountT)0);
+        raycast_tensor += image_idx * bytes_per_image;
 
-        EnemyGoalObservation *enemy_goal_obs_ptr =
-            (EnemyGoalObservation *)enemy_goal_tensor.devicePtr();
-
-        Reward *reward_ptr = (Reward *)reward_tensor.devicePtr();
-
-        BallObservation *ball_obs_ptr =
-            (BallObservation *)ball_tensor.devicePtr();
-
-        self_obs_ptr += agent_world_offset;
-        my_goal_obs_ptr += agent_world_offset;
-        enemy_goal_obs_ptr += agent_world_offset;
-        reward_ptr += agent_world_offset;
-
-        ball_obs_ptr += cur_world_id;
-
-        if (exec_mode == ExecMode::CUDA) {
+        if(exec_mode == ExecMode::CUDA){
 #ifdef MADRONA_CUDA_SUPPORT
-            cudaMemcpyAsync(self_obs_readback, self_obs_ptr,
-                            sizeof(SelfObservation) * num_views,
-                            cudaMemcpyDeviceToHost, copy_strm);
-
-            cudaMemcpyAsync(my_goal_obs_readback, my_goal_obs_ptr,
-                            sizeof(MyGoalObservation) * num_views,
-                            cudaMemcpyDeviceToHost, copy_strm);
-
-            cudaMemcpyAsync(enemy_goal_obs_readback, enemy_goal_obs_ptr,
-                            sizeof(EnemyGoalObservation) * num_views,
-                            cudaMemcpyDeviceToHost, copy_strm);
-
-            cudaMemcpyAsync(reward_readback, reward_ptr,
-                            sizeof(Reward) * num_views,
-                            cudaMemcpyDeviceToHost, copy_strm);
-
-            cudaMemcpyAsync(ball_readback, ball_obs_ptr,
-                            sizeof(BallObservation),
-                            cudaMemcpyDeviceToHost, copy_strm);
-
-            REQ_CUDA(cudaStreamSynchronize(copy_strm));
-
-            self_obs_ptr = self_obs_readback;
-            my_goal_obs_ptr = my_goal_obs_readback;
-            enemy_goal_obs_ptr = enemy_goal_obs_readback;
-            reward_ptr = reward_readback;
-            ball_obs_ptr = ball_readback;
+            cudaMemcpy(print_ptr, raycast_tensor,
+                    bytes_per_image,
+                    cudaMemcpyDeviceToHost);
+            raycast_tensor = (char *)print_ptr;
 #endif
         }
 
-        for (int64_t i = 0; i < num_views; i++) {
-            auto player_str = std::string("Player ") + std::to_string(i);
-            ImGui::Begin(player_str.c_str());
+        ImGui::Begin("Raycast");
 
-            const SelfObservation &cur_self = self_obs_ptr[i];
-            const MyGoalObservation &cur_my_goal = my_goal_obs_ptr[i];
-            const EnemyGoalObservation &cur_enemy_goal = enemy_goal_obs_ptr[i];
-            const Reward &reward = reward_ptr[i];
-            const BallObservation &ball = ball_obs_ptr[i];
+        auto draw2 = ImGui::GetWindowDrawList();
+        ImVec2 windowPos = ImGui::GetWindowPos();
+        char *raycasters = raycast_tensor;
 
-            ImGui::Text("Position:      (%.1f, %.1f, %.1f)",
-                cur_self.x, cur_self.y, cur_self.z);
-            ImGui::Text("Rotation:      %.2f",
-                cur_self.theta);
-            ImGui::Text("Velocity:      (%.1f, %.1f, %.1f)",
-                cur_self.vel.r, cur_self.vel.theta, cur_self.vel.phi);
-            ImGui::Text("To Ball:       (%.1f, %.1f, %.1f)",
-                ball.pos.r, ball.pos.theta, ball.pos.phi);
+        int vertOff = 70;
 
-            ImGui::Text("To My Goal:    (%.1f, %.1f, %.1f)",
-                cur_my_goal.pos.r, cur_my_goal.pos.theta, cur_my_goal.pos.phi);
+        float pixScale = 3;
+        int extentsX = (int)(pixScale * raycast_output_resolution);
+        int extentsY = (int)(pixScale * raycast_output_resolution);
 
-            ImGui::Text("To Enemy Goal: (%.1f, %.1f, %.1f)",
-                cur_enemy_goal.pos.r, cur_enemy_goal.pos.theta, cur_enemy_goal.pos.phi);
+        for (int i = 0; i < raycast_output_resolution; i++) {
+            for (int j = 0; j < raycast_output_resolution; j++) {
+                uint32_t linear_idx = 3 * (j + i * raycast_output_resolution);
 
-            ImGui::Text("Reward:    %.3f",
-                reward.v);
+                auto realColor = IM_COL32(
+                        raycasters[linear_idx + 0],
+                        raycasters[linear_idx + 1],
+                        raycasters[linear_idx + 2], 
+                        255);
 
-            ImGui::End();
+                draw2->AddRectFilled(
+                    { (i * pixScale) + windowPos.x, 
+                      (j * pixScale) + windowPos.y +vertOff }, 
+                    { ((i + 1) * pixScale) + windowPos.x,   
+                      ((j + 1) * pixScale)+ +windowPos.y+vertOff },
+                    realColor, 0, 0);
+            }
         }
+        ImGui::End();
     });
 }
