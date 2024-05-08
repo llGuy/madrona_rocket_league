@@ -81,8 +81,11 @@ int main(int argc, char *argv[])
         raycast_output_resolution *= 8;
     }
 
-    // WindowManager wm {};
-    // render::GPUHandle render_gpu = wm.initGPU(0, {});
+    auto *trace_test = getenv("MADRONA_TRACE_TEST");
+    if (trace_test[0] == '1') {
+        raycast_output_resolution = 1408;
+        printf("I set the resolution!!!\n");
+    }
 
     Manager mgr({
         .execMode = exec_mode,
