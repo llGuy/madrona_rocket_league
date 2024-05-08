@@ -644,6 +644,7 @@ Manager::Impl * Manager::Impl::init(
     sim_cfg.autoReset = mgr_cfg.autoReset;
     sim_cfg.initRandKey = rand::initKey(mgr_cfg.randSeed);
 
+#if 0
     std::array<std::string,1> collision_asset_paths;
     collision_asset_paths[0] =
         (std::filesystem::path(DATA_DIR) / "funky2.obj").string();
@@ -666,6 +667,7 @@ Manager::Impl * Manager::Impl::init(
                              tmp_alloc,
                              bvh,
                              &numBytes);
+#endif
 
     switch (mgr_cfg.execMode) {
     case ExecMode::CUDA: {
